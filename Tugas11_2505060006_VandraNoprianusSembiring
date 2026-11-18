@@ -1,0 +1,584 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "1f0d0b45",
+   "metadata": {},
+   "source": [
+    "# Tugas Mandiri Pertemuan 11 — Praktikum Big Data\n",
+    "## Machine Learning dengan Spark MLlib: Feature Engineering & Regresi Linear (Studi Kasus: Kopi Nusantara)\n",
+    "\n"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "b854113f",
+   "metadata": {},
+   "source": [
+    "### 0. Persiapan Dataset & SparkSession"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 1,
+   "id": "f6ff61ef",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2026-11-18T14:44:31.377932Z",
+     "iopub.status.busy": "2026-11-18T14:44:31.377429Z",
+     "iopub.status.idle": "2026-11-18T14:44:31.738362Z",
+     "shell.execute_reply": "2026-11-18T14:44:31.737493Z"
+    }
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Dataset berhasil dibuat: 2500 baris\n",
+      "        nama_menu      cabang waktu_pesan  qty  harga_satuan  total_penjualan\n",
+      "0  Kentang Goreng    Semarang       Malam    1         30000     27750.163532\n",
+      "1  Kentang Goreng  Yogyakarta        Sore    3         20000     64216.160744\n",
+      "2  Kentang Goreng    Semarang       Siang    5         22000    108722.792592\n",
+      "3  Kentang Goreng  Yogyakarta        Pagi    2         20000     54483.205872\n",
+      "4      Roti Bakar    Magelang       Malam    2         30000     58157.944120\n"
+     ]
+    }
+   ],
+   "source": [
+    "import numpy as np\n",
+    "import pandas as pd\n",
+    "\n",
+    "np.random.seed(111)\n",
+    "n = 2500\n",
+    "menu_list = [\"Kopi Susu\", \"Americano\", \"Cappuccino\", \"Roti Bakar\", \"Kentang Goreng\", \"Es Teh\"]\n",
+    "cabang_list = [\"Magelang\", \"Yogyakarta\", \"Semarang\"]\n",
+    "waktu_list = [\"Pagi\", \"Siang\", \"Sore\", \"Malam\"]\n",
+    "\n",
+    "data_tugas11 = pd.DataFrame({\n",
+    "    \"nama_menu\": np.random.choice(menu_list, size=n),\n",
+    "    \"cabang\": np.random.choice(cabang_list, size=n),\n",
+    "    \"waktu_pesan\": np.random.choice(waktu_list, size=n),\n",
+    "    \"qty\": np.random.randint(1, 6, size=n),\n",
+    "    \"harga_satuan\": np.random.choice([15000, 18000, 20000, 22000, 25000, 30000], size=n),\n",
+    "})\n",
+    "data_tugas11[\"total_penjualan\"] = data_tugas11[\"qty\"] * data_tugas11[\"harga_satuan\"] + np.random.normal(0, 8000, size=n)\n",
+    "data_tugas11.to_csv(\"tugas11_penjualan.csv\", index=False)\n",
+    "\n",
+    "print(f\"Dataset berhasil dibuat: {len(data_tugas11)} baris\")\n",
+    "print(data_tugas11.head())"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "id": "535b91be",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2026-11-18T14:44:31.741484Z",
+     "iopub.status.busy": "2026-11-18T14:44:31.741274Z",
+     "iopub.status.idle": "2026-11-18T14:44:42.078797Z",
+     "shell.execute_reply": "2026-11-18T14:44:42.076835Z"
+    }
+   },
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "26/11/18 21:44:33 WARN Utils: Your hostname, vandrasembiring-ThinkBook-14-G4-IAP resolves to a loopback address: 127.0.1.1; using 192.168.18.86 instead (on interface wlp43s0)\n",
+      "26/11/18 21:44:33 WARN Utils: Set SPARK_LOCAL_IP if you need to bind to another address\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "Setting default log level to \"WARN\".\n",
+      "To adjust logging level use sc.setLogLevel(newLevel). For SparkR, use setLogLevel(newLevel).\n"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "26/11/18 21:44:34 WARN NativeCodeLoader: Unable to load native-hadoop library for your platform... using builtin-java classes where applicable\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "SparkSession siap. Versi Spark: 3.5.9\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "root\n",
+      " |-- nama_menu: string (nullable = true)\n",
+      " |-- cabang: string (nullable = true)\n",
+      " |-- waktu_pesan: string (nullable = true)\n",
+      " |-- qty: integer (nullable = true)\n",
+      " |-- harga_satuan: integer (nullable = true)\n",
+      " |-- total_penjualan: double (nullable = true)\n",
+      "\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "+--------------+----------+-----------+---+------------+------------------+\n",
+      "|     nama_menu|    cabang|waktu_pesan|qty|harga_satuan|   total_penjualan|\n",
+      "+--------------+----------+-----------+---+------------+------------------+\n",
+      "|Kentang Goreng|  Semarang|      Malam|  1|       30000|27750.163531558544|\n",
+      "|Kentang Goreng|Yogyakarta|       Sore|  3|       20000| 64216.16074371864|\n",
+      "|Kentang Goreng|  Semarang|      Siang|  5|       22000|108722.79259154423|\n",
+      "|Kentang Goreng|Yogyakarta|       Pagi|  2|       20000|54483.205871792496|\n",
+      "|    Roti Bakar|  Magelang|      Malam|  2|       30000| 58157.94412015849|\n",
+      "+--------------+----------+-----------+---+------------+------------------+\n",
+      "only showing top 5 rows\n",
+      "\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Total baris: 2500\n"
+     ]
+    }
+   ],
+   "source": [
+    "from pyspark.sql import SparkSession\n",
+    "\n",
+    "spark = SparkSession.builder \\\n",
+    "    .appName(\"Tugas11-KopiNusantara-MLlib\") \\\n",
+    "    .master(\"local[*]\") \\\n",
+    "    .getOrCreate()\n",
+    "spark.sparkContext.setLogLevel(\"ERROR\")\n",
+    "spark.conf.set(\"spark.sql.shuffle.partitions\", \"4\")\n",
+    "\n",
+    "print(\"SparkSession siap. Versi Spark:\", spark.version)\n",
+    "\n",
+    "df = spark.read.csv(\"tugas11_penjualan.csv\", header=True, inferSchema=True)\n",
+    "df.printSchema()\n",
+    "df.show(5)\n",
+    "print(\"Total baris:\", df.count())"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "54e2eed8",
+   "metadata": {},
+   "source": [
+    "---\n",
+    "### A. Feature Engineering\n",
+    "Mengubah kolom kategorikal (`nama_menu`, `cabang`, `waktu_pesan`) menjadi indeks numerik menggunakan `StringIndexer`, lalu menggabungkan seluruh fitur (`qty`, `harga_satuan`, `nama_menu_idx`, `cabang_idx`, `waktu_pesan_idx`) ke dalam satu kolom `features` menggunakan `VectorAssembler`."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "id": "8db8798b",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2026-11-18T14:44:42.082891Z",
+     "iopub.status.busy": "2026-11-18T14:44:42.082528Z",
+     "iopub.status.idle": "2026-11-18T14:44:44.649470Z",
+     "shell.execute_reply": "2026-11-18T14:44:44.648027Z"
+    }
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "+--------------+-------------+----------+----------+-----------+---------------+\n",
+      "|     nama_menu|nama_menu_idx|    cabang|cabang_idx|waktu_pesan|waktu_pesan_idx|\n",
+      "+--------------+-------------+----------+----------+-----------+---------------+\n",
+      "|Kentang Goreng|          5.0|  Semarang|       2.0|      Malam|            1.0|\n",
+      "|Kentang Goreng|          5.0|Yogyakarta|       1.0|       Sore|            3.0|\n",
+      "|Kentang Goreng|          5.0|  Semarang|       2.0|      Siang|            2.0|\n",
+      "|Kentang Goreng|          5.0|Yogyakarta|       1.0|       Pagi|            0.0|\n",
+      "|    Roti Bakar|          4.0|  Magelang|       0.0|      Malam|            1.0|\n",
+      "|     Americano|          0.0|  Magelang|       0.0|       Pagi|            0.0|\n",
+      "|    Cappuccino|          2.0|  Magelang|       0.0|      Malam|            1.0|\n",
+      "|    Cappuccino|          2.0|  Semarang|       2.0|       Pagi|            0.0|\n",
+      "+--------------+-------------+----------+----------+-----------+---------------+\n",
+      "only showing top 8 rows\n",
+      "\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "+-------------------------+------------------+\n",
+      "|features                 |total_penjualan   |\n",
+      "+-------------------------+------------------+\n",
+      "|[1.0,30000.0,5.0,2.0,1.0]|27750.163531558544|\n",
+      "|[3.0,20000.0,5.0,1.0,3.0]|64216.16074371864 |\n",
+      "|[5.0,22000.0,5.0,2.0,2.0]|108722.79259154423|\n",
+      "|[2.0,20000.0,5.0,1.0,0.0]|54483.205871792496|\n",
+      "|[2.0,30000.0,4.0,0.0,1.0]|58157.94412015849 |\n",
+      "+-------------------------+------------------+\n",
+      "only showing top 5 rows\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "from pyspark.ml.feature import StringIndexer, VectorAssembler\n",
+    "\n",
+    "# Fit StringIndexer pada masing-masing kolom kategorikal dan simpan modelnya (dipakai lagi di Bagian E)\n",
+    "indexer_menu = StringIndexer(inputCol=\"nama_menu\", outputCol=\"nama_menu_idx\")\n",
+    "indexer_cabang = StringIndexer(inputCol=\"cabang\", outputCol=\"cabang_idx\")\n",
+    "indexer_waktu = StringIndexer(inputCol=\"waktu_pesan\", outputCol=\"waktu_pesan_idx\")\n",
+    "\n",
+    "model_idx_menu = indexer_menu.fit(df)\n",
+    "model_idx_cabang = indexer_cabang.fit(df)\n",
+    "model_idx_waktu = indexer_waktu.fit(df)\n",
+    "\n",
+    "df_indexed = model_idx_menu.transform(df)\n",
+    "df_indexed = model_idx_cabang.transform(df_indexed)\n",
+    "df_indexed = model_idx_waktu.transform(df_indexed)\n",
+    "\n",
+    "df_indexed.select(\"nama_menu\", \"nama_menu_idx\", \"cabang\", \"cabang_idx\", \"waktu_pesan\", \"waktu_pesan_idx\").show(8)\n",
+    "\n",
+    "assembler = VectorAssembler(\n",
+    "    inputCols=[\"qty\", \"harga_satuan\", \"nama_menu_idx\", \"cabang_idx\", \"waktu_pesan_idx\"],\n",
+    "    outputCol=\"features\"\n",
+    ")\n",
+    "df_final = assembler.transform(df_indexed)\n",
+    "df_final.select(\"features\", \"total_penjualan\").show(5, truncate=False)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "3205526e",
+   "metadata": {},
+   "source": [
+    "---\n",
+    "### B. Train/Test Split & Pelatihan Model\n",
+    "Membagi data menjadi **75% training** dan **25% testing** (`seed=101`), kemudian melatih `LinearRegression` dengan `labelCol=\"total_penjualan\"`."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 4,
+   "id": "542dd2a1",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2026-11-18T14:44:44.653047Z",
+     "iopub.status.busy": "2026-11-18T14:44:44.652515Z",
+     "iopub.status.idle": "2026-11-18T14:44:47.081352Z",
+     "shell.execute_reply": "2026-11-18T14:44:47.080011Z"
+    }
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Jumlah data training : 1839\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Jumlah data testing  : 661\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Model utama berhasil dilatih!\n",
+      "Koefisien tiap fitur: [22046.663271025755,3.0229208681606696,-123.21425598657828,279.2845246167609,339.63879532317213]\n",
+      "Intercept: -66903.1776648588\n"
+     ]
+    }
+   ],
+   "source": [
+    "from pyspark.ml.regression import LinearRegression\n",
+    "\n",
+    "train, test = df_final.randomSplit([0.75, 0.25], seed=101)\n",
+    "print(f\"Jumlah data training : {train.count()}\")\n",
+    "print(f\"Jumlah data testing  : {test.count()}\")\n",
+    "\n",
+    "lr = LinearRegression(featuresCol=\"features\", labelCol=\"total_penjualan\")\n",
+    "model = lr.fit(train)\n",
+    "\n",
+    "print(\"Model utama berhasil dilatih!\")\n",
+    "print(\"Koefisien tiap fitur:\", model.coefficients)\n",
+    "print(\"Intercept:\", model.intercept)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "60353687",
+   "metadata": {},
+   "source": [
+    "---\n",
+    "### C. Evaluasi Model\n",
+    "Menghitung **RMSE** dan **R²** pada data testing."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 5,
+   "id": "b72b2c35",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2026-11-18T14:44:47.084986Z",
+     "iopub.status.busy": "2026-11-18T14:44:47.084657Z",
+     "iopub.status.idle": "2026-11-18T14:44:47.930383Z",
+     "shell.execute_reply": "2026-11-18T14:44:47.929055Z"
+    }
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "+---------+--------+---+------------+------------------+------------------+\n",
+      "|nama_menu|  cabang|qty|harga_satuan|   total_penjualan|        prediction|\n",
+      "+---------+--------+---+------------+------------------+------------------+\n",
+      "|Americano|Magelang|  1|       25000|19721.170446051627|31056.146105506865|\n",
+      "|Americano|Magelang|  1|       25000|  21236.0956379149|31056.146105506865|\n",
+      "|Americano|Magelang|  4|       22000|  85834.8564401191| 88127.37331410211|\n",
+      "|Americano|Magelang|  4|       22000|102174.09100317833| 88127.37331410211|\n",
+      "|Americano|Magelang|  4|       30000|113044.63431555482|112310.74025938749|\n",
+      "|Americano|Magelang|  5|       22000|115810.29600214415|110174.03658512786|\n",
+      "|Americano|Magelang|  5|       25000|140386.40273615732|119242.79918960987|\n",
+      "|Americano|Magelang|  2|       30000| 73842.64420790318|  67877.7749220128|\n",
+      "|Americano|Magelang|  3|       15000|32345.642983082646| 44580.62517062851|\n",
+      "|Americano|Magelang|  4|       15000| 45510.16712269087| 66627.28844165425|\n",
+      "+---------+--------+---+------------+------------------+------------------+\n",
+      "only showing top 10 rows\n",
+      "\n"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "RMSE (Model Utama - 5 Fitur) : Rp 10,900.80\n",
+      "R²   (Model Utama - 5 Fitur) : 0.9107 (91.07% variasi data dijelaskan model)\n"
+     ]
+    }
+   ],
+   "source": [
+    "from pyspark.ml.evaluation import RegressionEvaluator\n",
+    "\n",
+    "predictions = model.transform(test)\n",
+    "predictions.select(\"nama_menu\", \"cabang\", \"qty\", \"harga_satuan\", \"total_penjualan\", \"prediction\").show(10)\n",
+    "\n",
+    "evaluator_rmse = RegressionEvaluator(labelCol=\"total_penjualan\", predictionCol=\"prediction\", metricName=\"rmse\")\n",
+    "evaluator_r2 = RegressionEvaluator(labelCol=\"total_penjualan\", predictionCol=\"prediction\", metricName=\"r2\")\n",
+    "\n",
+    "rmse_utama = evaluator_rmse.evaluate(predictions)\n",
+    "r2_utama = evaluator_r2.evaluate(predictions)\n",
+    "\n",
+    "print(f\"RMSE (Model Utama - 5 Fitur) : Rp {rmse_utama:,.2f}\")\n",
+    "print(f\"R²   (Model Utama - 5 Fitur) : {r2_utama:.4f} ({r2_utama*100:.2f}% variasi data dijelaskan model)\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "d3897633",
+   "metadata": {},
+   "source": [
+    "**Interpretasi (Bagian C):**  \n",
+    "Model regresi linear utama menghasilkan nilai **R² di atas 0,90** dengan **RMSE sekitar Rp 10 ribuan**, yang menunjukkan bahwa sebagian besar variasi `total_penjualan` berhasil dijelaskan dengan sangat baik oleh fitur-fitur yang ada. Oleh karena itu, model ini cukup akurat dan layak digunakan sebagai alat bantu estimasi omzet harian di tiap cabang Kopi Nusantara."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "421c3519",
+   "metadata": {},
+   "source": [
+    "---\n",
+    "### D. Eksperimen Perbandingan Fitur\n",
+    "Melatih model kedua yang **hanya** menggunakan fitur `qty` dan `harga_satuan` (tanpa informasi menu/cabang/waktu), lalu membandingkan nilai R² dengan model utama."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 6,
+   "id": "9bca46de",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2026-11-18T14:44:47.933885Z",
+     "iopub.status.busy": "2026-11-18T14:44:47.933548Z",
+     "iopub.status.idle": "2026-11-18T14:44:49.210814Z",
+     "shell.execute_reply": "2026-11-18T14:44:49.209415Z"
+    }
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "Model Utama (5 fitur) -> RMSE: Rp 10,900.80 | R²: 0.9107\n",
+      "Model Kedua (2 fitur) -> RMSE: Rp 10,896.03 | R²: 0.9108\n",
+      "Selisih R²            : -0.000078\n"
+     ]
+    }
+   ],
+   "source": [
+    "assembler_2 = VectorAssembler(\n",
+    "    inputCols=[\"qty\", \"harga_satuan\"],\n",
+    "    outputCol=\"features_2\"\n",
+    ")\n",
+    "df_model2 = assembler_2.transform(df)\n",
+    "\n",
+    "train_2, test_2 = df_model2.randomSplit([0.75, 0.25], seed=101)\n",
+    "\n",
+    "lr_2 = LinearRegression(featuresCol=\"features_2\", labelCol=\"total_penjualan\")\n",
+    "model_2 = lr_2.fit(train_2)\n",
+    "predictions_2 = model_2.transform(test_2)\n",
+    "\n",
+    "rmse_2 = evaluator_rmse.evaluate(predictions_2)\n",
+    "r2_2 = evaluator_r2.evaluate(predictions_2)\n",
+    "\n",
+    "print(f\"Model Utama (5 fitur) -> RMSE: Rp {rmse_utama:,.2f} | R²: {r2_utama:.4f}\")\n",
+    "print(f\"Model Kedua (2 fitur) -> RMSE: Rp {rmse_2:,.2f} | R²: {r2_2:.4f}\")\n",
+    "print(f\"Selisih R²            : {r2_utama - r2_2:+.6f}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "7c5f9bae",
+   "metadata": {},
+   "source": [
+    "**Kesimpulan (Bagian D):**  \n",
+    "Nilai **R²** model kedua (hanya `qty` dan `harga_satuan`) hampir identik dengan model utama (5 fitur), sehingga penambahan informasi `nama_menu`, `cabang`, dan `waktu_pesan` **tidak meningkatkan akurasi prediksi secara berarti**. Hal ini masuk akal karena pada data transaksi ini `total_penjualan` ditentukan secara langsung oleh `qty * harga_satuan` (ditambah noise acak), sedangkan menu, cabang, dan waktu pesan dipilih secara acak dan tidak memengaruhi besarnya total penjualan secara langsung."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "id": "0b18e28a",
+   "metadata": {},
+   "source": [
+    "---\n",
+    "### E. Prediksi Skenario Baru\n",
+    "Membuat DataFrame berisi 3 skenario pesanan dummy, memprosesnya menggunakan model `StringIndexer` (`model_idx_menu`, `model_idx_cabang`, `model_idx_waktu`) dan `VectorAssembler` (`assembler`) yang **sama** dari tahap sebelumnya, lalu memprediksi `total_penjualan`."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 7,
+   "id": "8b217e54",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2026-11-18T14:44:49.214651Z",
+     "iopub.status.busy": "2026-11-18T14:44:49.214249Z",
+     "iopub.status.idle": "2026-11-18T14:44:50.913533Z",
+     "shell.execute_reply": "2026-11-18T14:44:50.912081Z"
+    }
+   },
+   "outputs": [
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\r",
+      "[Stage 32:>                                                         (0 + 1) / 1]\r"
+     ]
+    },
+    {
+     "name": "stderr",
+     "output_type": "stream",
+     "text": [
+      "\r",
+      "                                                                                \r"
+     ]
+    },
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "+----------+----------+-----------+---+------------+-----------------+\n",
+      "|nama_menu |cabang    |waktu_pesan|qty|harga_satuan|prediction       |\n",
+      "+----------+----------+-----------+---+------------+-----------------+\n",
+      "|Kopi Susu |Magelang  |Pagi       |3  |20000       |59572.01525544528|\n",
+      "|Cappuccino|Yogyakarta|Sore       |2  |25000       |53814.94297982256|\n",
+      "|Roti Bakar|Semarang  |Malam      |4  |18000       |76101.40186674664|\n",
+      "+----------+----------+-----------+---+------------+-----------------+\n",
+      "\n"
+     ]
+    }
+   ],
+   "source": [
+    "skenario_baru = spark.createDataFrame([\n",
+    "    (\"Kopi Susu\", \"Magelang\", \"Pagi\", 3, 20000),\n",
+    "    (\"Cappuccino\", \"Yogyakarta\", \"Sore\", 2, 25000),\n",
+    "    (\"Roti Bakar\", \"Semarang\", \"Malam\", 4, 18000),\n",
+    "], [\"nama_menu\", \"cabang\", \"waktu_pesan\", \"qty\", \"harga_satuan\"])\n",
+    "\n",
+    "skenario_idx = model_idx_menu.transform(skenario_baru)\n",
+    "skenario_idx = model_idx_cabang.transform(skenario_idx)\n",
+    "skenario_idx = model_idx_waktu.transform(skenario_idx)\n",
+    "\n",
+    "skenario_final = assembler.transform(skenario_idx)\n",
+    "hasil_prediksi = model.transform(skenario_final)\n",
+    "\n",
+    "hasil_prediksi.select(\n",
+    "    \"nama_menu\", \"cabang\", \"waktu_pesan\", \"qty\", \"harga_satuan\", \"prediction\"\n",
+    ").show(truncate=False)"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 8,
+   "id": "fcf42937",
+   "metadata": {
+    "execution": {
+     "iopub.execute_input": "2026-11-18T14:44:50.916718Z",
+     "iopub.status.busy": "2026-11-18T14:44:50.916343Z",
+     "iopub.status.idle": "2026-11-18T14:44:51.914326Z",
+     "shell.execute_reply": "2026-11-18T14:44:51.912743Z"
+    }
+   },
+   "outputs": [
+    {
+     "name": "stdout",
+     "output_type": "stream",
+     "text": [
+      "SparkSession ditutup.\n"
+     ]
+    }
+   ],
+   "source": [
+    "spark.stop()\n",
+    "print(\"SparkSession ditutup.\")"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.11.16"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
